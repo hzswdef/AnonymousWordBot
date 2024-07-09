@@ -1,0 +1,9 @@
+{
+  "secrets": {
+    "environment_variables": [
+      "TELEGRAM_BOT_TOKEN",
+      "TELEGRAM_ERROR_NOTIFICATIONS_CHANNEL_ID",
+      "TELEGRAM_STORAGE_CHANNEL_ID"
+    ]
+  }
+}
