@@ -19,6 +19,7 @@ from telegram.ext import (
 
 from src.const import API_BASE_URL, USER_LINK_REGEX, USER_WELCOME_REGEX
 from src.decorators.auth import auth
+from src.decorators.admin import admin
 from src.markup import Markup
 from src.helpers.reply_templates import load_reply_templates
 from src.utilities.env import load_env
@@ -55,9 +56,10 @@ class TelegramBot:
         self.bot.add_handler(CommandHandler('delete', self.delete_command))
         # self.bot.add_handler(CommandHandler('stats', self.stats_command))
         # self.bot.add_handler(CommandHandler('help', self.help_command))
+        self.bot.add_handler(CommandHandler('reveal', self.reveal_command))
 
         # Register message handler.
-        self.bot.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, self.handle_message))
+        self.bot.add_handler(MessageHandler(filters.ALL, self.handle_message))
 
         self.logger.info('Initialized the Telegram bot.')
 
@@ -250,11 +252,50 @@ class TelegramBot:
     #     )
 
     @auth
+    @admin
+    async def reveal_command(self, update: Update, context: CallbackContext):
+        reply_message = update.message.reply_to_message
+
+        if reply_message is None:
+            return await update.message.reply_text("Перешлите нужное анонимное сообщение и используйте эту команду вместе с ним.\n\nP.s. Немного позже автор будет указан вместе с его сообщением, чтобы не возиться с этой командой ;)")
+
+        author = requests.get(f"{API_BASE_URL}/api/user/author/{reply_message.message_id}")
+        author = author.json()
+
+        chat = await update.get_bot().getChat(author['telegramId'])
+
+        if chat.photo:
+            avatar = await chat.photo.get_big_file()
+            avatar = await avatar.download_as_bytearray()
+
+            await update.message.reply_photo(
+                bytes(avatar),
+                filename="avatar.png",
+                caption=f"*username*: {('@' + chat.username) if chat.username else 'hidden'}\n"
+                        f"*first name*: `{chat.first_name or 'hidden'}`\n"
+                        f"*last name*: `{chat.last_name or 'hidden'}`\n\n"
+                        f"*ID*: `{chat.id}`",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            await update.message.reply_text(
+                f"*username*: {('@' + chat.username) if chat.username else 'hidden'}\n"
+                f"first name: `{chat.first_name or 'hidden'}`\n"
+                f"last name: `{chat.last_name or 'hidden'}`\n\n"
+                f"ID: `{chat.id}`\n\n"
+                f"{chat.photo or 'photo hidden'}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+    @auth
     async def handle_message(self, update: Update, context: CallbackContext):
         """ Handle user input. """
 
         # @TODO Remove when all possible errors are handled.
         try:
+            if update.message.text == "/reveal":
+                return
+
             receiver_link = self.redis.get(f"session:{update.message.from_user.id}:message")
             reply_message = update.message.reply_to_message
 
