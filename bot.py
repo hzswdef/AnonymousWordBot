@@ -309,7 +309,7 @@ class TelegramBot:
                     await update.message.reply_photo(
                         bytes(avatar),
                         filename="avatar.png",
-                        caption=f"*username*: {('@' + chat.username) if chat.username else 'hidden'}\n"
+                        caption=f"*username*: {('@' + escape_markdown(chat.username)) if chat.username else 'hidden'}\n"
                                 f"*first name*: `{chat.first_name or 'hidden'}`\n"
                                 f"*last name*: `{chat.last_name or 'hidden'}`\n\n"
                                 f"*ID*: `{chat.id}`",
@@ -317,7 +317,7 @@ class TelegramBot:
                     )
                 else:
                     await update.message.reply_text(
-                        f"*username*: {('@' + chat.username) if chat.username else 'hidden'}\n"
+                        f"*username*: {('@' + escape_markdown(chat.username)) if chat.username else 'hidden'}\n"
                         f"first name: `{chat.first_name or 'hidden'}`\n"
                         f"last name: `{chat.last_name or 'hidden'}`\n\n"
                         f"ID: `{chat.id}`\n\n"
