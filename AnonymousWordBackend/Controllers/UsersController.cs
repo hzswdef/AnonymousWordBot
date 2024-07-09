@@ -94,6 +94,31 @@ public class UsersController : ControllerBase
         
         return Ok(user);
     }
+    
+    /// <summary>
+    /// Get Anonymous Message Author by Message from the storage channel.
+    /// </summary>
+    /// <param name="messageId">Recipient Message ID.</param>
+    /// <returns>Author of the message.</returns>
+    [HttpGet("author_from_storage/{messageId:long}")]
+    public async Task<IActionResult> GetAuthorFromStorage(long? messageId)
+    {
+        Message? message = await _databaseContext
+            .Messages
+            .FirstOrDefaultAsync(message => message.StorageMessageId == messageId);
+
+        if (message == null)
+            return NotFound();
+        
+        User? user = await _databaseContext
+            .Users
+            .FirstOrDefaultAsync(user => user.TelegramId == message.AuthorId);
+        
+        if (user == null)
+            return NotFound();
+        
+        return Ok(user);
+    }
 
     /// <summary>
     /// Patch User.
