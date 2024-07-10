@@ -1,11 +1,12 @@
 import logging
 import re
+from typing import BinaryIO
 
 import requests
 
 from re import match
 from redis import Redis
-from telegram import Update
+from telegram import Update, User
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.helpers import escape_markdown
@@ -22,6 +23,7 @@ from src.decorators.auth import auth
 from src.decorators.admin import admin
 from src.markup import Markup
 from src.helpers.reply_templates import load_reply_templates
+from src.helpers.user_roles import UserRoles
 from src.utilities.env import load_env
 
 
@@ -69,25 +71,25 @@ class TelegramBot:
 
         receiver_link = None
 
-        user = requests.get(f"{API_BASE_URL}/api/user", params={
+        author = requests.get(f"{API_BASE_URL}/api/user", params={
             "telegramId": update.message.from_user.id,
         })
 
-        if user.status_code != 200:
+        if author.status_code != 200:
             return await self.handle_error(
                 update,
                 context,
-                f"FATAL: GET /api/user [tid: {update.message.from_user.id}] ({user.status_code}) - User not registered?"
+                f"FATAL: GET /api/user [tid: {update.message.from_user.id}] ({author.status_code}) - User not registered?"
             )
 
         if len(context.args) != 0:
             receiver_link = context.args[0]
 
-        user = user.json()
+        author = author.json()
 
         # Send the usual "start" command message if no receiver link is present.
         if receiver_link is None:
-            if user["link"] is None:
+            if author["link"] is None:
                 return await update.message.reply_text(
                     text=self.replies.COMMAND_START["NO_LINK"],
                     parse_mode=ParseMode.MARKDOWN,
@@ -96,10 +98,19 @@ class TelegramBot:
             return await update.message.reply_text(
                 text=self.replies.COMMAND_START["DEFAULT"].format(
                     bot_username=escape_markdown(update.get_bot().username),
-                    user_link=escape_markdown(user["link"]),
+                    user_link=escape_markdown(author["link"]),
                 ),
                 parse_mode=ParseMode.MARKDOWN,
             )
+
+        receiver = requests.get(f"{API_BASE_URL}/api/user", params={
+            "link": receiver_link,
+        })
+
+        if receiver.status_code != 200:
+            return await update.message.reply_text("Похоже получатель изменил или удалил ссылку...")
+
+        receiver = receiver.json()
 
         session = self.redis.set(
             f"session:{update.message.from_user.id}:message",
@@ -111,6 +122,12 @@ class TelegramBot:
             text=self.replies.COMMAND_START["ANONYMOUS_MESSAGE"],
             parse_mode=ParseMode.MARKDOWN,
         )
+
+        if receiver["welcomeMessage"]:
+            await update.message.reply_text(
+                text=receiver["welcomeMessage"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
 
     # @TODO Implement this.
     # @auth
@@ -257,35 +274,17 @@ class TelegramBot:
         reply_message = update.message.reply_to_message
 
         if reply_message is None:
-            return await update.message.reply_text("Перешлите нужное анонимное сообщение и используйте эту команду вместе с ним.\n\nP.s. Немного позже автор будет указан вместе с его сообщением, чтобы не возиться с этой командой ;)")
+            return await update.message.reply_text("Перешлите нужное анонимное сообщение и одновременно используйте эту команду.")
 
         author = requests.get(f"{API_BASE_URL}/api/user/author/{reply_message.message_id}")
         author = author.json()
 
-        chat = await update.get_bot().getChat(author['telegramId'])
-
-        if chat.photo:
-            avatar = await chat.photo.get_big_file()
-            avatar = await avatar.download_as_bytearray()
-
-            await update.message.reply_photo(
-                bytes(avatar),
-                filename="avatar.png",
-                caption=f"*username*: {('@' + chat.username) if chat.username else 'hidden'}\n"
-                        f"*first name*: `{chat.first_name or 'hidden'}`\n"
-                        f"*last name*: `{chat.last_name or 'hidden'}`\n\n"
-                        f"*ID*: `{chat.id}`",
-                parse_mode=ParseMode.MARKDOWN,
-            )
-        else:
-            await update.message.reply_text(
-                f"*username*: {('@' + chat.username) if chat.username else 'hidden'}\n"
-                f"first name: `{chat.first_name or 'hidden'}`\n"
-                f"last name: `{chat.last_name or 'hidden'}`\n\n"
-                f"ID: `{chat.id}`\n\n"
-                f"{chat.photo or 'photo hidden'}",
-                parse_mode=ParseMode.MARKDOWN,
-            )
+        await self.reveal_author(
+            update,
+            context,
+            recipient_id=update.message.from_user.id,
+            author_id=author["telegramId"],
+        )
 
     @auth
     async def handle_message(self, update: Update, context: CallbackContext):
@@ -300,30 +299,12 @@ class TelegramBot:
                 author = requests.get(f"{API_BASE_URL}/api/user/author_from_storage/{update.message.forward_origin.message_id}")
                 author = author.json()
 
-                chat = await update.get_bot().getChat(author['telegramId'])
-
-                if chat.photo:
-                    avatar = await chat.photo.get_big_file()
-                    avatar = await avatar.download_as_bytearray()
-
-                    await update.message.reply_photo(
-                        bytes(avatar),
-                        filename="avatar.png",
-                        caption=f"*username*: {('@' + escape_markdown(chat.username)) if chat.username else 'hidden'}\n"
-                                f"*first name*: `{chat.first_name or 'hidden'}`\n"
-                                f"*last name*: `{chat.last_name or 'hidden'}`\n\n"
-                                f"*ID*: `{chat.id}`",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-                else:
-                    await update.message.reply_text(
-                        f"*username*: {('@' + escape_markdown(chat.username)) if chat.username else 'hidden'}\n"
-                        f"first name: `{chat.first_name or 'hidden'}`\n"
-                        f"last name: `{chat.last_name or 'hidden'}`\n\n"
-                        f"ID: `{chat.id}`\n\n"
-                        f"{chat.photo or 'photo hidden'}",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
+                await self.reveal_author(
+                    update,
+                    context,
+                    recipient_id=update.message.from_user.id,
+                    author_id=author["telegramId"],
+                )
 
                 return
 
@@ -367,8 +348,14 @@ class TelegramBot:
             # Send notification about successfully sent anonymous message to the author.
             await update.message.reply_text(self.replies.EVENT_ANONYMOUS_MESSAGE_SENT)
 
-            # Send message to the storage.
+            # Send message to the storage and reveal the message author.
             message_in_storage = await update.message.copy(self.env.TELEGRAM_STORAGE_CHANNEL_ID)
+            await self.reveal_author(
+                update,
+                context,
+                recipient_id=self.env.TELEGRAM_STORAGE_CHANNEL_ID,
+                author_id=update.message.from_user.id,
+            )
 
             if receiver_link:
                 # Send notification about new anonymous message to the recipient.
@@ -403,6 +390,15 @@ class TelegramBot:
                     )
                     message_in_recipient_chat = await update.message.copy(original_message["authorId"])
 
+            # Reveal the message's author to the receiver with the "Special" role.
+            if UserRoles.Special in UserRoles(receiver["roles"]):
+                await self.reveal_author(
+                    update,
+                    context,
+                    recipient_id=receiver["telegramId"],
+                    author_id=update.message.from_user.id,
+                )
+
             # Store all needed data in backend.
             requests.post(
                 f"{API_BASE_URL}/api/message",
@@ -426,6 +422,40 @@ class TelegramBot:
             await update.get_bot().send_message(
                 chat_id=self.env.TELEGRAM_ERROR_NOTIFICATIONS_CHANNEL_ID,
                 text=error,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+    @staticmethod
+    async def reveal_author(
+            update: Update,
+            context: CallbackContext,
+            recipient_id: int | str,
+            author_id: int | str,
+    ):
+        recipient = await update.get_bot().getChat(recipient_id)
+        subject = await update.get_bot().getChat(author_id)
+
+        message_text = f"*username*: {('@' + escape_markdown(subject.username)) if subject.username else '-'}\n"
+        message_text += f"first name: {('`' + subject.first_name + '`') if subject.first_name else '-'}\n"
+        message_text += f"last name: {('`' + subject.last_name + '`') if subject.last_name else '-'}\n\n"
+        message_text += \
+            f"[Chat (web)](https://web.telegram.org/k/#{('@' + subject.username) if subject.username else subject.id})"
+        message_text += f"\n\nID: `{subject.id}`"
+
+        if subject.photo:
+            avatar = await subject.photo.get_big_file()
+            avatar = await avatar.download_as_bytearray()
+
+            await recipient.send_photo(
+                photo=bytes(avatar),
+                filename="avatar.jpg",
+                caption=message_text,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            message_text += "\n\navatar is hidden"
+            await recipient.send_message(
+                message_text,
                 parse_mode=ParseMode.MARKDOWN,
             )
 

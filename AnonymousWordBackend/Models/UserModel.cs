@@ -2,11 +2,12 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
+using AnonymousWordBackend.Extensions;
 
 namespace AnonymousWordBackend.Models;
 
 [Table("users")]
-public class User
+public class UserModel
 {
     [Key]
     [Required]
@@ -28,12 +29,17 @@ public class User
     public string? WelcomeMessage { get; set; }
     
     [Required]
+    [DefaultValue(1)]
+    [Column("roles", TypeName = "smallint")]
+    public Roles Roles { get; set; }
+    
+    [Required]
     [JsonIgnore]
-    public ICollection<Message> ReceivedMessages = [];
+    public ICollection<MessageModel> ReceivedMessages = [];
     
     [Required]
     [JsonIgnore]        
-    public ICollection<Message> SentMessages = [];
+    public ICollection<MessageModel> SentMessages = [];
     
     [Required]
     [ReadOnly(true)]

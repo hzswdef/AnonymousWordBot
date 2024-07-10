@@ -1,11 +1,14 @@
 using AnonymousWordBackend;
 using AnonymousWordBackend.Contexts;
+using AnonymousWordBackend.Services;
 using Microsoft.OpenApi.Models;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddDbContext<DatabaseContext>();
+builder.Services.AddTransient<UserService>();
+builder.Services.AddTransient<MessageService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

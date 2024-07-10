@@ -1,12 +1,16 @@
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using AnonymousWordBackend.Contexts;
 using AnonymousWordBackend.ControllerParams;
 using AnonymousWordBackend.Dto;
+using AnonymousWordBackend.Entities;
+using AnonymousWordBackend.Extensions;
 using AnonymousWordBackend.Models;
+using AnonymousWordBackend.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace AnonymousWordBackend.Controllers;
 
@@ -16,13 +20,21 @@ public class UsersController : ControllerBase
 {
     private readonly ILogger<UsersController> _logger;
     private readonly DatabaseContext _databaseContext;
+    private readonly UserService _userService;
+    private readonly MessageService _messageService;
 
     private const string LinkCharactersPool = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-    public UsersController(ILogger<UsersController> logger, DatabaseContext databaseContext)
+    public UsersController(
+        ILogger<UsersController> logger,
+        DatabaseContext databaseContext, 
+        UserService userService,
+        MessageService messageService)
     {
         _logger = logger;
         _databaseContext = databaseContext;
+        _userService = userService;
+        _messageService = messageService;
     }
 
     /// <summary>
@@ -33,9 +45,7 @@ public class UsersController : ControllerBase
     [HttpGet("{id:long}")]
     public async Task<IActionResult> User(long id)
     {
-        User? user = await _databaseContext
-            .Users
-            .FirstOrDefaultAsync(user => user.Id == id);
+        UserEntity? user = await _userService.LoadById(id);
         
         if (user == null)
             return NotFound();
@@ -51,18 +61,15 @@ public class UsersController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> UserByFilters([FromQuery] UserFilters userFilters)
     {
-        IQueryable<User> query = _databaseContext.Users;
+        // Convert a userFilters variable object to the dictionary to load the User by given filters.
+        Dictionary<string, object>? properties = JObject
+            .FromObject(userFilters, new JsonSerializer { NullValueHandling = NullValueHandling.Ignore })
+            .ToObject<Dictionary<string, object>>();
 
-        if (userFilters.Id != null)
-            query = query.Where(user => user.Id == userFilters.Id);
-        if (userFilters.TelegramId != null)
-            query = query.Where(user => user.TelegramId == userFilters.TelegramId);
-        if (userFilters.Link != null)
-            query = query.Where(user => user.Link == userFilters.Link);
-        if (userFilters.RegisteredAt != null)
-            query = query.Where(user => user.RegisteredAt == userFilters.RegisteredAt);
+        if (properties == null)
+            return NotFound();
 
-        User? user = await query.FirstOrDefaultAsync();
+        UserEntity? user = await _userService.LoadByProperties(properties);
         
         if (user == null)
             return NotFound();
@@ -76,23 +83,25 @@ public class UsersController : ControllerBase
     /// <param name="messageId">Recipient Message ID.</param>
     /// <returns>Author of the message.</returns>
     [HttpGet("author/{messageId:long}")]
-    public async Task<IActionResult> GetAuthor(long? messageId)
+    public async Task<IActionResult> GetAuthor(long messageId)
     {
-        Message? message = await _databaseContext
-            .Messages
-            .FirstOrDefaultAsync(message => message.RecipientChatMessageId == messageId);
+        Dictionary<string, object> messageProperties = new () { {
+            "RecipientChatMessageId", messageId
+        } };
+        MessageEntity? message = await _messageService.LoadByProperties(messageProperties);
 
         if (message == null)
             return NotFound();
+
+        Dictionary<string, object> userProperties = new () {
+        {
+            "TelegramId", message.AuthorId
+        } };
+        UserEntity? user = await _userService.LoadByProperties(userProperties);
         
-        User? user = await _databaseContext
-            .Users
-            .FirstOrDefaultAsync(user => user.TelegramId == message.AuthorId);
-        
-        if (user == null)
-            return NotFound();
-        
-        return Ok(user);
+        return user == null
+            ? NotFound()
+            : Ok(user);
     }
     
     /// <summary>
@@ -101,23 +110,25 @@ public class UsersController : ControllerBase
     /// <param name="messageId">Recipient Message ID.</param>
     /// <returns>Author of the message.</returns>
     [HttpGet("author_from_storage/{messageId:long}")]
-    public async Task<IActionResult> GetAuthorFromStorage(long? messageId)
+    public async Task<IActionResult> GetAuthorFromStorage(long messageId)
     {
-        Message? message = await _databaseContext
-            .Messages
-            .FirstOrDefaultAsync(message => message.StorageMessageId == messageId);
+        Dictionary<string, object> messageProperties = new () { {
+            "StorageMessageId", messageId
+        } };
+        MessageEntity? message = await _messageService.LoadByProperties(messageProperties);
 
         if (message == null)
             return NotFound();
+
+        Dictionary<string, object> userProperties = new () {
+        {
+            "TelegramId", message.AuthorId
+        } };
+        UserEntity? user = await _userService.LoadByProperties(userProperties);
         
-        User? user = await _databaseContext
-            .Users
-            .FirstOrDefaultAsync(user => user.TelegramId == message.AuthorId);
-        
-        if (user == null)
-            return NotFound();
-        
-        return Ok(user);
+        return user == null
+            ? NotFound()
+            : Ok(user);
     }
 
     /// <summary>
@@ -129,48 +140,19 @@ public class UsersController : ControllerBase
     [HttpPatch("{telegramId:long}")]
     public async Task<IActionResult> PatchUser(long telegramId, PatchUser data)
     {
-        User? user = await _databaseContext
-            .Users
-            .FirstOrDefaultAsync(user => user.TelegramId == telegramId);
-
+        Dictionary<string, object> userProperties = new () {
+        {
+            "TelegramId", telegramId
+        } };
+        UserEntity? user = await _userService.LoadByProperties(userProperties);
+        
         if (user == null)
             return NotFound();
-        
+
         if (data.Link != null)
-        {
-            Regex pattern = new (@"^[a-zA-Z0-9_]{6,32}$");
-            
-            if (data.Link == "del")
-                user.Link = null;
-            else if (!pattern.IsMatch(data.Link))
-                return Conflict("Allowed only english characters, digits, underscore. Allowed length is from 6 to 32 characters.");
-            else
-            {
-                User? userWithSameLink = await _databaseContext
-                    .Users
-                    .FirstOrDefaultAsync(u => u.Link == data.Link);
-
-                if (userWithSameLink != null)
-                    return Conflict("Link already used.");
-                
-                user.Link = data.Link;
-            }
-        }
-        
+            user = await user.SetLink(data.Link);
         if (data.WelcomeMessage != null)
-        {
-            Regex pattern = new (@"^.{6,256}$");
-            
-            if (data.WelcomeMessage == "clear")
-                user.WelcomeMessage = null;
-            else if (!pattern.IsMatch(data.WelcomeMessage))
-                return Conflict("WelcomeMessage allowed length is from 6 to 256 characters.");
-            else
-                user.WelcomeMessage = data.WelcomeMessage;
-        }
-
-        _databaseContext.Users.Update(user);
-        await _databaseContext.SaveChangesAsync();
+            user = await user.SetWelcomeMessage(data.WelcomeMessage);
         
         return Ok(user);
     }
@@ -183,7 +165,7 @@ public class UsersController : ControllerBase
     [HttpPut("{telegramId:long}")]
     public async Task<IActionResult> CreateUser(long telegramId)
     {
-        User user = new()
+        UserModel userModel = new()
         {
             TelegramId = telegramId,
             Link = RandomNumberGenerator.GetString(
@@ -192,11 +174,12 @@ public class UsersController : ControllerBase
             ),
             WelcomeMessage = null,
             RegisteredAt = DateTimeOffset.Now.ToUnixTimeSeconds(),
+            Roles = Roles.User
         };
 
-        _databaseContext.Users.Add(user);
+        _databaseContext.Users.Add(userModel);
         await _databaseContext.SaveChangesAsync();
         
-        return Ok(user);
+        return Ok(userModel);
     }
 }

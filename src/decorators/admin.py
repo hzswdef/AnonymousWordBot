@@ -1,9 +1,11 @@
 from functools import wraps
+
+import requests
 from telegram import Update
 from telegram.ext import CallbackContext
-from json import load
 
-from src.const import ROOT_DIR
+from src.const import API_BASE_URL
+from src.helpers.user_roles import UserRoles
 
 
 def admin(func):
@@ -13,10 +15,16 @@ def admin(func):
 
     @wraps(func)
     def wrapper(this, update: Update, context: CallbackContext):
-        with open(ROOT_DIR + "/.whitelist.json", "r") as file:
-            whitelist = load(file)["whitelist"]
+        user = requests.get(f"{API_BASE_URL}/api/user", params={
+            "telegramId": update.effective_user.id,
+        })
 
-        if update.message.from_user.id in whitelist:
+        if user.status_code != 200:
+            return
+
+        user = user.json()
+
+        if UserRoles.Special in UserRoles(user["roles"]):
             return func(this, update, context)
 
         return None

@@ -2,9 +2,13 @@ using System.Runtime.InteropServices;
 using AnonymousWordBackend.Contexts;
 using AnonymousWordBackend.ControllerParams;
 using AnonymousWordBackend.Dto;
+using AnonymousWordBackend.Entities;
 using AnonymousWordBackend.Models;
+using AnonymousWordBackend.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace AnonymousWordBackend.Controllers;
 
@@ -14,11 +18,16 @@ public class MessagesController : ControllerBase
 {
     private readonly ILogger<UsersController> _logger;
     private readonly DatabaseContext _databaseContext;
+    private readonly MessageService _messageService;
 
-    public MessagesController(ILogger<UsersController> logger, DatabaseContext databaseContext)
+    public MessagesController(
+        ILogger<UsersController> logger,
+        DatabaseContext databaseContext,
+        MessageService messageService)
     {
         _logger = logger;
         _databaseContext = databaseContext;
+        _messageService = messageService;
     }
 
     /// <summary>
@@ -29,10 +38,8 @@ public class MessagesController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<IActionResult> MessageById(int id)
     {
-        Message? message = await _databaseContext
-            .Messages
-            .FirstOrDefaultAsync(message => message.Id == id);
-
+        MessageEntity? message = await _messageService.LoadById(id);
+        
         if (message == null)
             return NotFound();
         
@@ -47,26 +54,15 @@ public class MessagesController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> MessageByFilters([FromQuery] MessageFilters messageFilters)
     {
-        IQueryable<Message> query = _databaseContext.Messages;
+        // Convert a userFilters variable object to the dictionary to load the User by given filters.
+        Dictionary<string, object>? properties = JObject
+            .FromObject(messageFilters, new JsonSerializer { NullValueHandling = NullValueHandling.Ignore })
+            .ToObject<Dictionary<string, object>>();
 
-        if (messageFilters.Id != null)
-            query = query.Where(message => message.Id == messageFilters.Id);
-        if (messageFilters.AuthorChatMessageId != null)
-            query = query.Where(message => message.AuthorChatMessageId == messageFilters.AuthorChatMessageId);
-        if (messageFilters.RecipientChatMessageId != null)
-            query = query.Where(message => message.RecipientChatMessageId == messageFilters.RecipientChatMessageId);
-        if (messageFilters.StorageMessageId != null)
-            query = query.Where(message => message.StorageMessageId == messageFilters.StorageMessageId);
-        if (messageFilters.AuthorId != null)
-            query = query.Where(message => message.AuthorId == messageFilters.AuthorId);
-        if (messageFilters.RecipientId != null)
-            query = query.Where(message => message.RecipientId == messageFilters.RecipientId);
-        if (messageFilters.Body != null)
-            query = query.Where(message => message.Body == messageFilters.Body);
-        if (messageFilters.AuthoredOn != null)
-            query = query.Where(message => message.AuthoredOn == messageFilters.AuthoredOn);
+        if (properties == null)
+            return NotFound();
 
-        Message? message = await query.FirstOrDefaultAsync();
+        MessageEntity? message = await _messageService.LoadByProperties(properties);
 
         if (message == null)
             return NotFound();
@@ -82,7 +78,7 @@ public class MessagesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> CreateMessage([FromBody] PostMessage data)
     {
-        Message message = new()
+        MessageModel messageModel = new()
         {
             AuthorChatMessageId = data.AuthorChatMessageId,
             RecipientChatMessageId = data.RecipientChatMessageId,
@@ -93,11 +89,11 @@ public class MessagesController : ControllerBase
         };
 
         if (data.Body != null)
-            message.Body = data.Body;
+            messageModel.Body = data.Body;
 
-        _databaseContext.Messages.Add(message);
+        _databaseContext.Messages.Add(messageModel);
         await _databaseContext.SaveChangesAsync();
         
-        return Ok(message);
+        return Ok(messageModel);
     }
 }

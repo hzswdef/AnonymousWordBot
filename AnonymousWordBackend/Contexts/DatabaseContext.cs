@@ -5,8 +5,8 @@ namespace AnonymousWordBackend.Contexts;
 
 public sealed class DatabaseContext : DbContext
 {
-    public DbSet<User> Users { get; set; }
-    public DbSet<Message> Messages { get; set; }
+    public DbSet<UserModel> Users { get; set; }
+    public DbSet<MessageModel> Messages { get; set; }
 
     public DatabaseContext()
     {
@@ -18,9 +18,13 @@ public sealed class DatabaseContext : DbContext
         
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<User>()
+        modelBuilder.Entity<UserModel>()
             .HasIndex(user => user.TelegramId)
             .IsUnique();
+        
+        modelBuilder.Entity<UserModel>()
+            .Property(user => user.Roles)
+            .HasConversion<short>();
         
         base.OnModelCreating(modelBuilder);
     }

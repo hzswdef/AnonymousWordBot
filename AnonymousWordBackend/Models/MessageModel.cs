@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace AnonymousWordBackend.Models;
 
 [Table("messages")]
-public class Message
+public class MessageModel
 {
     [Key]
     [Required]
@@ -41,7 +41,7 @@ public class Message
     
     [Required]
     [JsonIgnore]
-    public User? Author;
+    public UserModel? Author;
     
     [Required]
     [ReadOnly(true)]
@@ -50,7 +50,7 @@ public class Message
     
     [Required]
     [JsonIgnore]
-    public User? Recipient;
+    public UserModel? Recipient;
 
     [DefaultValue(null)]
     [ReadOnly(true)]
