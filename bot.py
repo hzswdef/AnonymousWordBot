@@ -6,7 +6,7 @@ import requests
 
 from re import match
 from redis import Redis
-from telegram import Update, User
+from telegram import Update, User, InputMediaPhoto
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.helpers import escape_markdown
@@ -257,24 +257,15 @@ class TelegramBot:
             parse_mode=ParseMode.MARKDOWN,
         )
 
-    # @auth
-    # async def stats_command(self, update: Update, context: CallbackContext):
-    #     """ Command to show a User's statistics. """
-    #
-    #     await update.message.reply_text(
-    #         text=self.replies.COMMAND_MYSTATS.format(
-    #             bot=escape_markdown('@' + update.get_bot().username, version=1)
-    #         ),
-    #         parse_mode=ParseMode.MARKDOWN,
-    #     )
-
     @auth
     @admin
     async def reveal_command(self, update: Update, context: CallbackContext):
         reply_message = update.message.reply_to_message
 
         if reply_message is None:
-            return await update.message.reply_text("Перешлите нужное анонимное сообщение и одновременно используйте эту команду.")
+            return await update.message.reply_text(
+                "Перешлите нужное анонимное сообщение и одновременно используйте эту команду."
+            )
 
         author = requests.get(f"{API_BASE_URL}/api/user/author/{reply_message.message_id}")
         author = author.json()
@@ -353,8 +344,9 @@ class TelegramBot:
             await self.reveal_author(
                 update,
                 context,
-                recipient_id=self.env.TELEGRAM_STORAGE_CHANNEL_ID,
+                recipient_id=receiver["telegramId"],
                 author_id=update.message.from_user.id,
+                to_storage=True,
             )
 
             if receiver_link:
@@ -412,6 +404,8 @@ class TelegramBot:
                 }
             )
         except Exception:
+            await update.message.copy(self.env.TELEGRAM_ERROR_NOTIFICATIONS_CHANNEL_ID)
+
             error = "Something strange happen.\n\nUID: `{uid}`\nMID: `{mid}`".format(
                 uid=update.message.from_user.id,
                 mid=update.message.message_id,
@@ -425,36 +419,99 @@ class TelegramBot:
                 parse_mode=ParseMode.MARKDOWN,
             )
 
-    @staticmethod
     async def reveal_author(
+            self,
             update: Update,
             context: CallbackContext,
             recipient_id: int | str,
             author_id: int | str,
+            to_storage: bool = False,
     ):
         recipient = await update.get_bot().getChat(recipient_id)
         subject = await update.get_bot().getChat(author_id)
 
-        message_text = f"*username*: {('@' + escape_markdown(subject.username)) if subject.username else '-'}\n"
-        message_text += f"first name: {('`' + subject.first_name + '`') if subject.first_name else '-'}\n"
-        message_text += f"last name: {('`' + subject.last_name + '`') if subject.last_name else '-'}\n\n"
-        message_text += \
-            f"[Chat (web)](https://web.telegram.org/k/#{('@' + subject.username) if subject.username else subject.id})"
+        chat_to_reveal = \
+            await update.get_bot().getChat(self.env.TELEGRAM_STORAGE_CHANNEL_ID) \
+            if to_storage \
+            else recipient
+
+        message_text = ""
+
+        if to_storage:
+            message_text += "*Author:*\n\n"
+
+        subject_username = ('@' + escape_markdown(subject.username)) if subject.username else '-'
+        subject_first_name = ('`' + escape_markdown(subject.first_name) + '`') if subject.first_name else '-'
+        subject_last_name = ('`' + escape_markdown(subject.last_name) + '`') if subject.last_name else '-'
+        subject_chat_link = "[Chat (web)](https://web.telegram.org/k/#{link})".format(
+            link=('@' + escape_markdown(subject.username)) if subject.username else subject.id
+        )
+
+        message_text += "username: {username}\n".format(username=subject_username)
+        message_text += "first name: {first_name}\n".format(first_name=subject_first_name)
+        message_text += "last name: {last_name}\n\n".format(last_name=subject_last_name)
+        if not to_storage:
+            message_text += \
+                "Если {subject} не запретил отправку сообщений от незнакомых пользователей ".format(
+                    subject=
+                    ("@" + escape_markdown(subject.username))
+                    if subject.username
+                    else "*" + escape_markdown(subject.first_name) + "*",
+                ) + \
+                "или у вас есть его контакт, то вы сможете открыть чат с ним в браузере:\n"
+
+        message_text += subject_chat_link
+
         message_text += f"\n\nID: `{subject.id}`"
 
-        if subject.photo:
-            avatar = await subject.photo.get_big_file()
-            avatar = await avatar.download_as_bytearray()
+        if to_storage:
+            message_text += "\n\n*Recipient:*\n\n"
 
-            await recipient.send_photo(
-                photo=bytes(avatar),
-                filename="avatar.jpg",
+            recipient_username = ('@' + escape_markdown(recipient.username)) if recipient.username else '-'
+            recipient_first_name = ('`' + escape_markdown(recipient.first_name) + '`') if recipient.first_name else '-'
+            recipient_last_name = ('`' + escape_markdown(recipient.last_name) + '`') if recipient.last_name else '-'
+            recipient_chat_link = "[Chat (web)](https://web.telegram.org/k/#{link})".format(
+                link=('@' + escape_markdown(recipient.username)) if recipient.username else recipient.id
+            )
+
+            message_text += "username: {username}\n".format(username=recipient_username)
+            message_text += "first name: {first_name}\n".format(first_name=recipient_first_name)
+            message_text += "last name: {last_name}\n\n".format(last_name=recipient_last_name)
+            message_text += recipient_chat_link
+
+            message_text += f"\n\nID: `{recipient.id}`"
+
+        avatars = []
+
+        if subject.photo:
+            subject_avatar = await subject.photo.get_small_file()
+
+            media = InputMediaPhoto(
+                media=bytes(await subject_avatar.download_as_bytearray()),
+                filename="subject.png",
+            )
+
+            avatars.append(media)
+
+        if to_storage and recipient.photo:
+            recipient_avatar = await recipient.photo.get_small_file()
+
+            media = InputMediaPhoto(
+                media=bytes(await recipient_avatar.download_as_bytearray()),
+                filename="recipient.png",
+            )
+
+            avatars.append(media)
+
+        if len(avatars) != 0:
+            await chat_to_reveal.send_media_group(
+                media=avatars,
                 caption=message_text,
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
             message_text += "\n\navatar is hidden"
-            await recipient.send_message(
+            await chat_to_reveal.send_message(
                 message_text,
                 parse_mode=ParseMode.MARKDOWN,
             )
