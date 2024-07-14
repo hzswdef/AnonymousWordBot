@@ -347,6 +347,7 @@ class TelegramBot:
                 recipient_id=receiver["telegramId"],
                 author_id=update.message.from_user.id,
                 to_storage=True,
+                storage_message_id=message_in_storage.message_id,
             )
 
             if receiver_link:
@@ -426,6 +427,7 @@ class TelegramBot:
             recipient_id: int | str,
             author_id: int | str,
             to_storage: bool = False,
+            storage_message_id: int = None,
     ):
         recipient = await update.get_bot().getChat(recipient_id)
         subject = await update.get_bot().getChat(author_id)
@@ -481,6 +483,8 @@ class TelegramBot:
 
             message_text += f"\n\nID: `{recipient.id}`"
 
+            message_text += f"\n\nMessage ID: `{storage_message_id}`"
+
         avatars = []
 
         if subject.photo:
@@ -510,7 +514,9 @@ class TelegramBot:
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
-            message_text += "\n\navatar is hidden"
+            if to_storage:
+                message_text += "\n\navatar is hidden"
+
             await chat_to_reveal.send_message(
                 message_text,
                 parse_mode=ParseMode.MARKDOWN,
