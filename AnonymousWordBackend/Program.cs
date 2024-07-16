@@ -9,6 +9,7 @@ builder.Services.AddControllers();
 builder.Services.AddDbContext<DatabaseContext>();
 builder.Services.AddTransient<UserService>();
 builder.Services.AddTransient<MessageService>();
+builder.Services.AddTransient<BanListService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

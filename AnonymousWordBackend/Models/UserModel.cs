@@ -35,11 +35,15 @@ public class UserModel
     
     [Required]
     [JsonIgnore]
-    public ICollection<MessageModel> ReceivedMessages = [];
+    public ICollection<MessageModel> ReceivedMessages { get; } = new List<MessageModel>();
+
+    [Required]
+    [JsonIgnore]
+    public ICollection<MessageModel> SentMessages { get; } = new List<MessageModel>();
     
     [Required]
-    [JsonIgnore]        
-    public ICollection<MessageModel> SentMessages = [];
+    [JsonIgnore]
+    public ICollection<BanListModel> BanList { get; } = new List<BanListModel>();
     
     [Required]
     [ReadOnly(true)]

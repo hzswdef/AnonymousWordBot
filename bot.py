@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from typing import BinaryIO
 
@@ -18,7 +19,7 @@ from telegram.ext import (
     filters,
 )
 
-from src.const import API_BASE_URL, USER_LINK_REGEX, USER_WELCOME_REGEX
+from src.const import API_BASE_URL, USER_LINK_REGEX, USER_WELCOME_REGEX, ROOT_DIR
 from src.decorators.auth import auth
 from src.decorators.admin import admin
 from src.markup import Markup
@@ -51,13 +52,11 @@ class TelegramBot:
 
         # Register command handlers.
         self.bot.add_handler(CommandHandler('start', self.start_command))
-        # @TODO Implement this.
-        # self.bot.add_handler(CommandHandler('donate', self.donate_command))
         self.bot.add_handler(CommandHandler('link', self.link_command))
         self.bot.add_handler(CommandHandler('welcome', self.welcome_command))
+        self.bot.add_handler(CommandHandler('ban', self.ban_command))
+        self.bot.add_handler(CommandHandler('unban', self.unban_command))
         self.bot.add_handler(CommandHandler('delete', self.delete_command))
-        # self.bot.add_handler(CommandHandler('stats', self.stats_command))
-        # self.bot.add_handler(CommandHandler('help', self.help_command))
         self.bot.add_handler(CommandHandler('reveal', self.reveal_command))
 
         # Register message handler.
@@ -128,13 +127,6 @@ class TelegramBot:
                 text=receiver["welcomeMessage"],
                 parse_mode=ParseMode.MARKDOWN,
             )
-
-    # @TODO Implement this.
-    # @auth
-    # async def donate_command(self, update: Update, context: CallbackContext):
-    #     """ Donate command. """
-    #
-    #     await update.message.reply_text(text=self.replies.COMMAND_DONATE, parse_mode=ParseMode.MARKDOWN)
 
     @auth
     async def link_command(self, update: Update, context: CallbackContext):
@@ -234,6 +226,109 @@ class TelegramBot:
             )
 
     @auth
+    async def ban_command(self, update: Update, context: CallbackContext):
+        """ Command to ban the User. """
+
+        reply_message = update.message.reply_to_message
+
+        if not reply_message:
+            asset = os.path.join(ROOT_DIR, "assets", "ban_help.png")
+
+            return await update.message.reply_photo(
+                photo=asset,
+                caption=self.replies.COMMAND_BAN["DEFAULT"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+        # Get Author of the replied message.
+        to_ban = requests.get(f"{API_BASE_URL}/api/user/author/{reply_message.message_id}")
+
+        if to_ban.status_code != 200:
+            return await self.handle_error(
+                update,
+                context,
+                f"FATAL: GET /api/user/author/{reply_message.message_id} ({to_ban.status_code})"
+            )
+
+        to_ban = to_ban.json()
+
+        ban_request = requests.post(f"{API_BASE_URL}/api/ban_list/ban", json={
+            "issuerId": update.effective_user.id,
+            "bannedId": to_ban["telegramId"],
+            "messageId": reply_message.message_id,
+        })
+
+        if ban_request.status_code == 200:
+            await update.message.reply_text(
+                text=self.replies.COMMAND_BAN["SUCCESS"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        elif ban_request.status_code == 409:
+            await update.message.reply_text(
+                text=self.replies.COMMAND_BAN["ALREADY_BANNED"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            await update.message.reply_text(
+                text="Возможно, произошла ошибка, пожалуйста, попробуйте ещё раз.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+    @auth
+    async def unban_command(self, update: Update, context: CallbackContext):
+        """ Command to ban the User. """
+
+        reply_message = update.message.reply_to_message
+
+        if not reply_message:
+            asset = os.path.join(ROOT_DIR, "assets", "unban_help.png")
+
+            return await update.message.reply_photo(
+                photo=asset,
+                caption=self.replies.COMMAND_BAN["DEFAULT"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+        # Get Author of the replied message.
+        to_unban = requests.get(f"{API_BASE_URL}/api/user/author/{reply_message.message_id}")
+
+        if to_unban.status_code != 200:
+            return await self.handle_error(
+                update,
+                context,
+                f"FATAL: GET /api/user/author/{reply_message.message_id} ({to_unban.status_code})"
+            )
+
+        to_unban = to_unban.json()
+
+        unban_request = requests.post(f"{API_BASE_URL}/api/ban_list/unban", json={
+            "issuerId": update.effective_user.id,
+            "bannedId": to_unban["telegramId"],
+            "messageId": reply_message.message_id,
+        })
+
+        if unban_request.status_code == 200:
+            await update.message.reply_text(
+                text=self.replies.COMMAND_BAN["SUCCESS"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        elif unban_request.status_code == 404:
+            await update.message.reply_text(
+                text=self.replies.COMMAND_BAN["NOT_FOUND"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        elif unban_request.status_code == 409:
+            await update.message.reply_text(
+                text=self.replies.COMMAND_BAN["ALREADY_UNBANNED"],
+                parse_mode=ParseMode.MARKDOWN,
+            )
+        else:
+            await update.message.reply_text(
+                text="Возможно, произошла ошибка, пожалуйста, попробуйте ещё раз.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+    @auth
     async def delete_command(self, update: Update, context: CallbackContext):
         """ Command to delete User's link. """
 
@@ -286,8 +381,11 @@ class TelegramBot:
             if update.message.text == "/reveal":
                 return
 
-            if update.message.forward_origin and update.message.forward_origin.chat.id == int(self.env.TELEGRAM_STORAGE_CHANNEL_ID):
-                author = requests.get(f"{API_BASE_URL}/api/user/author_from_storage/{update.message.forward_origin.message_id}")
+            # Reveal author by forwarded message from storage channel.
+            if update.message.forward_origin and update.message.forward_origin.chat.id == int(
+                    self.env.TELEGRAM_STORAGE_CHANNEL_ID):
+                author = requests.get(
+                    f"{API_BASE_URL}/api/user/author_from_storage/{update.message.forward_origin.message_id}")
                 author = author.json()
 
                 await self.reveal_author(
@@ -463,8 +561,10 @@ class TelegramBot:
                 "или у вас есть его контакт, то вы сможете открыть чат с ним в браузере:\n"
 
         message_text += subject_chat_link
-
         message_text += f"\n\nID: `{subject.id}`"
+
+        if to_storage and (not subject.photo):
+            message_text += "\n\navatar is hidden"
 
         if to_storage:
             message_text += "\n\n*Recipient:*\n\n"
@@ -480,10 +580,9 @@ class TelegramBot:
             message_text += "first name: {first_name}\n".format(first_name=recipient_first_name)
             message_text += "last name: {last_name}\n\n".format(last_name=recipient_last_name)
             message_text += recipient_chat_link
-
             message_text += f"\n\nID: `{recipient.id}`"
-
             message_text += f"\n\nMessage ID: `{storage_message_id}`"
+            message_text += "\n\navatar is hidden"
 
         avatars = []
 
@@ -514,9 +613,6 @@ class TelegramBot:
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
-            if to_storage:
-                message_text += "\n\navatar is hidden"
-
             await chat_to_reveal.send_message(
                 message_text,
                 parse_mode=ParseMode.MARKDOWN,

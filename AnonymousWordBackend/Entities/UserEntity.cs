@@ -56,7 +56,6 @@ public partial class UserEntity
         Link = link;
         _userModel.Link = link;
         
-        // UpdateModel();
         _databaseContext.Users.Update(_userModel);
         await _databaseContext.SaveChangesAsync();
         
@@ -81,20 +80,10 @@ public partial class UserEntity
         WelcomeMessage = welcomeMessage;
         _userModel.WelcomeMessage = welcomeMessage;
 
-        // UpdateModel();
         _databaseContext.Users.Update(_userModel);
         await _databaseContext.SaveChangesAsync();
         
         return this;
-    }
-    
-    /// <summary>
-    /// Update Entity on the database.
-    /// </summary>
-    private async void UpdateModel()
-    {
-        _databaseContext.Users.Update(_userModel);
-        await _databaseContext.SaveChangesAsync();
     }
 
     [GeneratedRegex(@"^[a-zA-Z0-9_]{6,32}$")]

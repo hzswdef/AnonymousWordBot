@@ -9,6 +9,7 @@ class ReplyTemplates(object):
     COMMAND_START = None
     COMMAND_LINK = None
     COMMAND_WELCOME = None
+    COMMAND_BAN = None
     COMMAND_DELETE = None
 
     EVENT_ANONYMOUS_MESSAGE_SENT = None

@@ -1,15 +1,12 @@
-using System.Text.RegularExpressions;
 using AnonymousWordBackend.Contexts;
-using AnonymousWordBackend.Extensions;
 using AnonymousWordBackend.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace AnonymousWordBackend.Entities;
 
 public class MessageAuthorNotFound(string message) : Exception(message);
-// public class UserEntityInvalidWelcomeMessageException(string message) : Exception(message);
 
-public partial class MessageEntity
+public class MessageEntity
 {
     private readonly DatabaseContext _databaseContext;
     private readonly MessageModel _messageModel;

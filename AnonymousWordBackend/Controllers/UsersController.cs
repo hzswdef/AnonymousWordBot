@@ -1,5 +1,4 @@
 using System.Security.Cryptography;
-using System.Text.RegularExpressions;
 using AnonymousWordBackend.Contexts;
 using AnonymousWordBackend.ControllerParams;
 using AnonymousWordBackend.Dto;
@@ -8,7 +7,6 @@ using AnonymousWordBackend.Extensions;
 using AnonymousWordBackend.Models;
 using AnonymousWordBackend.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -173,8 +171,8 @@ public class UsersController : ControllerBase
                 length: 16
             ),
             WelcomeMessage = null,
-            RegisteredAt = DateTimeOffset.Now.ToUnixTimeSeconds(),
-            Roles = Roles.User
+            Roles = Roles.User,
+            RegisteredAt = DateTimeOffset.Now.ToUnixTimeSeconds()
         };
 
         _databaseContext.Users.Add(userModel);
